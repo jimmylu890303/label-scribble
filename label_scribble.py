@@ -58,8 +58,9 @@ def load_image_from_list():
     # Show Src Image On Canvas
     display_image = Image.fromarray(image)
     canvas_img = ImageTk.PhotoImage(display_image)
-    canvas.create_image(0, 0, anchor=tk.NW, image=canvas_img)
-    canvas.config(width=image.shape[1], height=image.shape[0])
+    BORDER_WIDTH = 5
+    canvas.create_image(BORDER_WIDTH, BORDER_WIDTH, anchor=tk.NW, image=canvas_img)
+    canvas.config(width=image.shape[1] + BORDER_WIDTH * 2, height=image.shape[0] + BORDER_WIDTH * 2)
 
     # Check Mask
     parent_dir = os.path.dirname(folder_path)
