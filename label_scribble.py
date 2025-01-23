@@ -9,16 +9,7 @@ scribbles = []
 current_class = 1 
 image = None 
 mask = None  
-class_colors = {
-    0: "#000000",  # 背景黑色
-    1: "#FF0000",  # 紅色
-    2: "#FF7F00",  # 橙色
-    3: "#FFFF00",  # 黃色
-    4: "#00FF00",  # 綠色
-    5: "#0000FF",  # 藍色
-    6: "#4B0082",  # 靛藍色
-    7: "#9400D3"   # 紫色
-}
+BORDER_WIDTH = 5
 drawing = False  # 是否正在繪製
 last_x, last_y = None, None  # 記錄上一點的座標
 
@@ -58,7 +49,6 @@ def load_image_from_list():
     # Show Src Image On Canvas
     display_image = Image.fromarray(image)
     canvas_img = ImageTk.PhotoImage(display_image)
-    BORDER_WIDTH = 5
     canvas.create_image(BORDER_WIDTH, BORDER_WIDTH, anchor=tk.NW, image=canvas_img)
     canvas.config(width=image.shape[1] + BORDER_WIDTH * 2, height=image.shape[0] + BORDER_WIDTH * 2)
 
@@ -71,7 +61,13 @@ def load_image_from_list():
     global mask, clear_flag
     if os.path.exists(mask_path) and clear_flag == False:
         print(f"Loading mask from {mask_path}")
-        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        mask = Image.open(mask_path)
+        mask = np.asarray(mask)
+        mask = mask.copy()
+        mask[mask == 3] = 255
+        mask[mask == 2] = 3
+        mask[mask == 1] = 2
+        mask[mask == 0] = 1
         draw_mask_on_canvas()
     # first time to init mask
     if mask is None:
@@ -91,7 +87,7 @@ def draw_mask_on_canvas():
 
     # 為每個 class_id 添加顏色
     for class_id, color in class_colors.items():
-        if class_id == 0:  # 跳過背景類別
+        if class_id == 0 :  # 跳過背景類別
             continue
 
         # 解析 HTML 顏色格式並加入不透明度
@@ -105,7 +101,7 @@ def draw_mask_on_canvas():
     # 更新 Canvas 上的圖片
     global canvas_mask_image  # 確保物件被保存
     canvas_mask_image = ImageTk.PhotoImage(mask_overlay)
-    canvas.create_image(0, 0, anchor=tk.NW, image=canvas_mask_image)
+    canvas.create_image(BORDER_WIDTH, BORDER_WIDTH, anchor=tk.NW, image=canvas_mask_image)
 
 
 import threading
@@ -169,15 +165,33 @@ def save_mask():
     if mask is None:
         print("No mask to save.")
         return
+    
+    # 處理儲存路徑
     current_image_path = image_list[image_index]
     image_name = os.path.splitext(os.path.basename(current_image_path))[0]
     mask_file_name = f"{image_name}.png"
-    parent_dir = os.path.dirname(folder_path)  # 获取父目录
-    save_dir = os.path.join(parent_dir, "scribble_mask")  # 拼接 scribble_mask 文件夹路径
+    parent_dir = os.path.dirname(folder_path)
+    save_dir = os.path.join(parent_dir, "scribble_mask")
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     save_path = os.path.join(save_dir, mask_file_name)
-    cv2.imwrite(save_path, mask)
+
+    palette = [
+    0, 0, 0,        # 索引 0 -> 黑色 (背景)
+    128, 0, 0,      # 索引 1 -> 紅色 (正常組織)
+    0, 128, 0,      # 索引 2 -> 綠色 (腫瘤組織)
+    128, 64, 128    # 索引 3 -> 紫色 (忽略區域)
+    ]
+
+    # 更改儲存格式
+    mask[mask == 0] = 255
+    mask[mask == 1] = 0
+    mask[mask == 2] = 1    
+    mask[mask == 3] = 2
+    mask_pil = Image.fromarray(mask.astype(np.uint8), mode='P')  # 轉為 PIL 調色盤模式
+    mask_pil.putpalette(palette)  # 套用調色盤
+    mask_pil.save(save_path, 'PNG')
+
     print(f"Mask saved to {save_path}")
 
 def start_draw(event):
@@ -205,7 +219,7 @@ def draw_scribble(event):
         canvas.create_line(last_x, last_y, x, y, fill=class_colors.get(current_class, "black"), width=2)
 
         # 更新掩膜（補全線段）
-        cv2.line(mask, (last_x, last_y), (x, y), current_class, thickness=2)
+        cv2.line(mask, (last_x - BORDER_WIDTH, last_y - BORDER_WIDTH), (x - BORDER_WIDTH, y - BORDER_WIDTH), current_class, thickness=2)
 
     # 記錄當前點作為下一次的上一點
     last_x, last_y = x, y
@@ -293,17 +307,37 @@ btn_jump = tk.Button(jump_frame, text="Jump to", command=jump_to_image)
 btn_jump.pack(side=tk.LEFT, padx=5)
 
 # 創建類別選擇按鈕
+
+class_names = {
+    1: "Background (1)",
+    2: "Normal Tissue (2)",
+    3: "Target Disease (3)",
+}
+
+class_colors = {
+    1: "#000000",  # 白色
+    2: "#FF0000",  # 紅色
+    3: "#00FF00",  # 綠色
+}
+
+# 創建類別選擇按鈕
 class_button_frame = tk.Frame(root)
 class_button_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
 
-root.bind("<KeyPress>", handle_keypress)
-
-
-
-for class_id in range(8):
-    color = class_colors[class_id]  # 使用预定义颜色
-    btn = tk.Button(class_button_frame, text=str(class_id), bg=color, command=lambda c=class_id: set_class_button(c))
+for class_id in range(len(class_names)):
+    class_id+=1
+    color = class_colors[class_id]
+    name = class_names[class_id]
+    btn = tk.Button(
+        class_button_frame,
+        text=name,
+        bg='#0070C0', 
+        fg='white',
+        command=lambda c=class_id: set_class_button(c)  # 設定按鈕動作
+    )
     btn.pack(side=tk.LEFT, padx=2, pady=2)
+
+root.bind("<KeyPress>", handle_keypress)
 
 canvas = tk.Canvas(root, bg="white")
 canvas.pack(fill=tk.BOTH, expand=True)
